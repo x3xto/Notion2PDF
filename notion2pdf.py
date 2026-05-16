@@ -12,6 +12,7 @@ MAIN_ANCHOR = "main-page"
 
 visited = set()
 collected_pages = []
+anchor_by_path = {}
 
 HEX_ID_RE = re.compile(
     r"^(?:[0-9a-f]{32}|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$",
@@ -119,20 +120,27 @@ def sanitize_subpage_header(soup: BeautifulSoup) -> None:
 def collect_pages(base_path: str, soup: BeautifulSoup) -> None:
     for link in list(soup.find_all("a")):
         href = link.get("href")
+
         if not href or not href.lower().endswith(".html"):
             continue
 
         full_path = resolve_path(base_path, href)
 
-        if full_path in visited:
-            continue
-
         if not os.path.exists(full_path):
             continue
 
+        if full_path in anchor_by_path:
+            link["href"] = f"#{anchor_by_path[full_path]}"
+            continue
+
         visited.add(full_path)
+
         anchor_id = f"page-{len(collected_pages)}"
+        anchor_by_path[full_path] = anchor_id
+
         print(f"Collected: {full_path}")
+
+        link["href"] = f"#{anchor_id}"
 
         sub_html = load_html(full_path)
         sub_soup = BeautifulSoup(sub_html, "lxml")
@@ -148,7 +156,6 @@ def collect_pages(base_path: str, soup: BeautifulSoup) -> None:
             }
         )
 
-        link["href"] = f"#{anchor_id}"
         collect_pages(full_path, sub_soup)
 
 
@@ -180,7 +187,9 @@ def build_combined_html(start_file: str) -> str:
     html = load_html(start_file)
     soup = BeautifulSoup(html, "lxml")
 
-    visited.add(str(Path(start_file).resolve()))
+    main_path = str(Path(start_file).resolve())
+    visited.add(main_path)
+    anchor_by_path[main_path] = MAIN_ANCHOR
 
     clean_main_header(soup, start_file)
     fix_asset_paths(soup, start_file)
@@ -220,7 +229,6 @@ def build_combined_html(start_file: str) -> str:
 
     soup.head.append(style)
 
-    # OUTPUT IS NOW NEXT TO INPUT FILE
     output_dir = Path(start_file).resolve().parent
     output_html = output_dir / "combined.html"
 
